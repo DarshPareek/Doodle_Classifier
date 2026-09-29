@@ -48,3 +48,23 @@ func HeadIrisData(data []IrisFlower) {
 		}
 	}
 }
+
+func IrisToDataPoint(flowers []IrisFlower) []DataPoint {
+	var dataPoints []DataPoint
+	for i := 0; i < len(flowers); i += 1 {
+		ip := []float32{flowers[i].PetalLength / 7.9, flowers[i].PetalWidth / 4.4, flowers[i].SepalLength / 6.9, flowers[i].SepalWidth / 2.5}
+		var op []float32
+		if flowers[i].Species == "Iris-setosa" {
+			op = []float32{1.0, 0.0, 0.0}
+		} else if flowers[i].Species == "Iris-versicolor" {
+			op = []float32{0.0, 1.0, 0.0}
+		} else {
+			op = []float32{0.0, 0.0, 1.0}
+		}
+		dataPoints = append(dataPoints, DataPoint{
+			inputs:  ip,
+			outputs: op,
+		})
+	}
+	return dataPoints
+}

@@ -35,14 +35,14 @@ func ParseNN(nn *NeuralNetwork) []Slider {
 		for j := 0; j < len(layer.weights); j++ {
 			for k := 0; k < len(layer.weights[0]); k++ {
 				s := NewSlider("Weight", i, j, k, 0)
+				s.SetValue(nn.layers[i].weights[j][k])
 				sliders = append(sliders, *s)
-				nn.layers[i].weights[j][k] = s.Value()
 			}
 		}
 		for j := 0; j < len(layer.biases); j++ {
 			s := NewSlider("Bias", i, 0, 0, j)
+			s.SetValue(nn.layers[i].biases[j])
 			sliders = append(sliders, *s)
-			nn.layers[i].biases[j] = s.Value()
 		}
 	}
 	return sliders

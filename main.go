@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"log"
-	"slices"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -24,11 +23,13 @@ type Game struct {
 	screenHeight int
 	pixelImage   *ebiten.Image
 	pixelBuffer  []byte
-	points       *[]Point
+	points       *[]DataPoint
 	nn           *NeuralNetwork
 	paramDials   []Slider
 	activeSlider int
 	fontFace     *text.GoTextFace
+	cost         float32
+	lr           float32
 }
 
 func (g *Game) Update() error {
@@ -41,16 +42,10 @@ func (g *Game) Update() error {
 			trackX, trackY, trackW, trackH := GetSliderLayout(g.screenWidth, g.screenHeight, i)
 			if mx >= trackX-5 && mx <= trackX+trackW+5 && my >= trackY-8 && my <= trackY+trackH+8 {
 				g.activeSlider = i
+				s := &g.paramDials[i]
 				ratio := (mx - trackX - buttonWidth/2) / (trackW - buttonWidth)
-				if ratio < 0 {
-					ratio = 0
-				}
-				if ratio > 1 {
-					ratio = 1
-				}
 				g.paramDials[i].normValue = ratio
 				val := g.paramDials[i].Value()
-				s := &g.paramDials[i]
 				if s.name == "Weight" {
 					g.nn.layers[s.l].weights[s.wi][s.wj] = val
 				} else {
@@ -87,17 +82,48 @@ func (g *Game) Update() error {
 	if inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
 		g.activeSlider = -1
 	}
+	println(g.lr)
+	for j := 0; j < 60; j += 1 {
+		for i := 0; i < 1000; i += 64 {
+			numStart := i
+			numEnd := i + 32
+			if numEnd > 1000 {
+				numEnd = 1000
+			}
+			Learn(g.nn, (*g.points)[numStart:numEnd], g.lr)
+		}
+	}
+	g.lr -= 0.00000001
+	UpdateSliders(g)
+	PlotDecisionBoundary(g)
+	cost := NetworkCost(g.nn, *g.points)
+	g.cost = cost
 	return nil
+}
+
+func UpdateSliders(g *Game) {
+	for i := range g.paramDials {
+		if i == g.activeSlider {
+			continue
+		}
+		s := &g.paramDials[i]
+		if s.name == "Weight" {
+			s.SetValue(g.nn.layers[s.l].weights[s.wi][s.wj])
+		} else {
+			s.SetValue(g.nn.layers[s.l].biases[s.b])
+		}
+	}
 }
 
 func PlotDecisionBoundary(g *Game) {
 	for row := 0; row < BOUNDARY_RESOLUTION; row++ {
-		// Invert row to map top-of-screen to high Y in data coordinates
-		dataY := (1.0 - float32(row)/float32(BOUNDARY_RESOLUTION)) * 100.0
+		dataY := 1.0 - float32(row)/float32(BOUNDARY_RESOLUTION)
 		for col := 0; col < BOUNDARY_RESOLUTION; col++ {
-			dataX := (float32(col) / float32(BOUNDARY_RESOLUTION)) * 100.0
-
-			res := Classify(g.nn, []float32{dataX, dataY})
+			dataX := float32(col) / float32(BOUNDARY_RESOLUTION)
+			ip := make([]float32, len((*g.points)[0].inputs))
+			ip[0] = dataX
+			ip[1] = dataY
+			res := Classify(g.nn, ip)
 			idx := (row*BOUNDARY_RESOLUTION + col) * 4
 
 			var srcR, srcG, srcB float64
@@ -139,6 +165,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	DrawSliders(g, screen)
+	DrawScore(g, screen)
+}
+
+func DrawScore(g *Game, screen *ebiten.Image) {
+	panelX := float32(g.screenWidth) - SLIDER_PANEL_WIDTH - SLIDER_PANEL_WIDTH
+	panelH := float32(50)
+	vector.FillRect(screen, panelX, 0, SLIDER_PANEL_WIDTH, panelH, COLOR_4, true)
+	vector.StrokeLine(screen, panelX, 0, panelX, panelH, 2, LINE_COLOR, true)
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(float64(panelX+14), float64(panelH-40))
+	op.ColorScale.ScaleWithColor(COLOR_2)
+	displayText := fmt.Sprintf("COST: %.2f", g.cost)
+	text.Draw(screen, displayText, g.fontFace, op)
+
 }
 
 func DrawSliders(g *Game, screen *ebiten.Image) {
@@ -152,10 +192,17 @@ func DrawSliders(g *Game, screen *ebiten.Image) {
 	for i, s := range g.paramDials {
 		trackX, trackY, trackW, trackH := GetSliderLayout(g.screenWidth, g.screenHeight, i)
 
+		var val float32
+		if s.name == "Weight" {
+			val = g.nn.layers[s.l].weights[s.wi][s.wj]
+		} else {
+			val = g.nn.layers[s.l].biases[s.b]
+		}
+
 		op := &text.DrawOptions{}
 		op.GeoM.Translate(float64(trackX), float64(trackY-18))
 		op.ColorScale.ScaleWithColor(COLOR_2)
-		displayText := fmt.Sprintf("%s %d: %.2f", s.name, i+1, s.Value())
+		displayText := fmt.Sprintf("%s %d: %.2f", s.name, i+1, val)
 		text.Draw(screen, displayText, g.fontFace, op)
 
 		vector.FillRect(screen, trackX, trackY+trackH/2-2, trackW, trackH/2, LINE_COLOR, true)
@@ -167,10 +214,10 @@ func DrawSliders(g *Game, screen *ebiten.Image) {
 
 func PlotPoints(g *Game, screen *ebiten.Image, marginX, marginY, plotW, plotH, graphH float32) {
 	for _, point := range *g.points {
-		x := marginX + (float32(point.x)/100.0)*plotW
-		y := (graphH - marginY) - (float32(point.y)/100.0)*plotH
+		x := marginX + point.inputs[0]*plotW
+		y := (graphH - marginY) - point.inputs[1]*plotH
 		r := float32(5.0)
-		if point.flag == 0 {
+		if point.outputs[0] == 1 {
 			vector.FillCircle(screen, x, y, r, COLOR_1, true)
 		} else {
 			vector.FillCircle(screen, x, y, r, COLOR_2, true)
@@ -198,12 +245,11 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func main() {
-	data := ReadIrisDataset("./archive/Iris.csv")
-	points1 := LoadIrisSepalPoints(data, 500)
-	points2 := LoadIrisPetalPoints(data, 500)
-	points := slices.Concat(points1, points2)
-	nn := NewNeuralNetwork([]int{2, 2})
-
+	data := ReadFruitDataset("./fruit_toxicity_dataset.csv")
+	// data := ReadIrisDataset("./archive/Iris.csv")
+	points := FruitToDataPoint(data)
+	// points := IrisToDataPoint(data)
+	nn := NewNeuralNetwork([]int{2, 4, 8, 8, 8, 8, 4, 2})
 	fontSource, err := text.NewGoTextFaceSource(bytes.NewReader(goregular.TTF))
 	if err != nil {
 		log.Fatalf("failed to parse font: %v", err)
@@ -231,10 +277,11 @@ func main() {
 		paramDials:   paramDials,
 		activeSlider: -1,
 		fontFace:     fontFace,
+		cost:         0.0,
+		lr:           0.01,
 	}
 
 	PlotDecisionBoundary(game)
-
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}

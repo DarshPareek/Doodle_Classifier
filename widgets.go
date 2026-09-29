@@ -21,7 +21,18 @@ func NewSlider(name string, layer, wi, wj, b int) *Slider {
 }
 
 func (s *Slider) Value() float32 {
-	return (s.normValue * 5.0) - 2.5
+	return (s.normValue * float32(WEIGHT_RANGE_MULTIPLIER)) - float32(WEIGHT_RANGE_ADDER)
+}
+
+func (s *Slider) SetValue(val float32) {
+	ratio := (val + float32(WEIGHT_RANGE_ADDER)) / float32(WEIGHT_RANGE_MULTIPLIER)
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	s.normValue = ratio
 }
 
 func GetSliderLayout(screenWidth, screenHeight int, index int) (trackX, trackY, trackW, trackH float32) {
