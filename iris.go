@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strconv"
 )
 
@@ -40,19 +39,11 @@ func ReadIrisDataset(path string) []IrisFlower {
 	return flowers
 }
 
-func HeadIrisData(data []IrisFlower) {
-	for i, flower := range data {
-		fmt.Printf("Flower Data for flower %d:\nSepalLength %f\nSepalWidth %f\nPetalLength %f\nPetalWidth %f\nSpecies %v\n", i, flower.SepalLength, flower.SepalWidth, flower.PetalLength, flower.PetalWidth, flower.Species)
-		if i == 5 {
-			break
-		}
-	}
-}
 
 func IrisToDataPoint(flowers []IrisFlower) []DataPoint {
 	var dataPoints []DataPoint
 	for i := 0; i < len(flowers); i += 1 {
-		ip := []float32{flowers[i].PetalLength / 7.9, flowers[i].PetalWidth / 4.4, flowers[i].SepalLength / 6.9, flowers[i].SepalWidth / 2.5}
+		ip := []float32{flowers[i].PetalLength / 6.9, flowers[i].PetalWidth / 2.5, flowers[i].SepalLength / 7.9, flowers[i].SepalWidth / 4.4}
 		var op []float32
 		if flowers[i].Species == "Iris-setosa" {
 			op = []float32{1.0, 0.0, 0.0}
